@@ -1,0 +1,345 @@
+###########################################################################################
+#oriented bounding box
+
+#obj1 = pcd_01.get_axis_aligned_bounding_box()
+#obj1.color = (1, 0, 0)
+#obj2 = pcd_01.get_oriented_bounding_box()
+#obj2.color = (0, 0, 1)
+#o3d.visualization.draw_geometries([pcd_01, obj1, obj2])
+
+##########################################################################################
+#calculate centre of point cloud
+##########################################################################################
+
+pcd_points_01 = np.asarray(pcd_01.points)
+pcd_centre_01 = pcd_points_01[1,:] + pcd_points_01[2,:]
+pcd_centre_01[0] = 0
+pcd_centre_01[1] = 0
+pcd_centre_01[2] = 0
+
+#calculate centre of torso point cloud####################################################
+
+nr = len(pcd_points_01)
+print(nr)
+
+#calculate centre
+#---------------------
+for i in range(nr):
+  pcd_centre_01 = pcd_centre_01 + pcd_points_01[i,:]
+#---------------------
+pcd_centre_01 = pcd_centre_01/nr
+
+#centre point cloud # origin (0,0,0) is placed in torso centre
+#---------------------
+for i in range(nr):
+  pcd_points_01[i,:] = pcd_points_01[i,:] - pcd_centre_01
+
+print(np.asarray(pcd_points_01)[0,:])
+
+##########################################################################################
+#make copy of point cloud and perform reflection about sagittal plane
+##########################################################################################
+
+#make copy of torso object
+#pcd_points_01_reflect = pcd_points_01
+pcd_points_01_reflect = pcd_points_01.copy()
+#print(np.asarray(pcd_centre_01)[:])
+    #source_temp = copy.deepcopy(source)
+    #target_temp = copy.deepcopy(target)
+
+#do reflection about sagittal plane
+for i in range(nr):
+  temp = pcd_points_01[i,0]
+  pcd_points_01_reflect[i,0] = -temp
+
+print(np.asarray(pcd_points_01)[0,:])
+print(np.asarray(pcd_points_01_reflect)[0,:])
+
+#------------------------------------------------------------------------------------------
+#Detect which points of the reflection are positioned inside the original volume
+#------------------------------------------------------------------------------------------
+
+#Variablennamen ueberpruefen
+
+sign_dist = pcd_points_01[:,0].copy()
+sign_dist_metric = pcd_points_01[:,0].copy()
+
+for i in range(nr):
+    distmin = 100000
+
+    #Distanzfunktion von Open3D nutzen anstatt Schleife
+    for k in range(math.floor(nr/30)):
+        
+        j = k*30
+#        #calculate manually the distance between original and reflection
+        dists_man = math.sqrt( (pcd_points_01[i,0] - pcd_points_01_reflect[j,0])**2 + (pcd_points_01[i,1] - pcd_points_01_reflect[j,1])**2 + (pcd_points_01[i,2] - pcd_points_01_reflect[j,2])**2 )
+
+        if dists_man < distmin: 
+            distmin = dists_man
+            near_point = pcd_points_01_reflect[j,:]
+            sign_dist_metric[i] = dists_man
+
+    dist_orig = math.sqrt( (pcd_points_01[i,0] - pcd_centre_01[0])**2 + (pcd_points_01[i,1] - pcd_centre_01[1])**2 + (pcd_points_01[i,2] - pcd_centre_01[2])**2 )
+    dist_refl = math.sqrt( (near_point[0] - pcd_centre_01[0])**2 + (near_point[1] - pcd_centre_01[1])**2 + (near_point[2] - pcd_centre_01[2])**2 )
+
+    if dist_orig > dist_refl:
+        sign_dist[i] = 1
+    else: 
+        sign_dist[i] = 0
+        sign_dist_metric[i] = - sign_dist_metric[i]
+
+print("Print the signed distances of the first 10 points")
+print(np.asarray(sign_dist)[:])
+
+###########################################################################################
+
+
+###########################################################################################
+
+
+
+###########################################################################################
+###########################################################################################
+#Definition of functions
+###########################################################################################
+###########################################################################################
+
+
+
+###########################################################################################
+#ICP matching for original and reflection
+###########################################################################################
+
+###########################################################################################
+
+#type(source)
+
+#------------------------------------------------------------------------
+def draw_registration_result_init(source, target, transformation):
+    source_temp = copy.deepcopy(source)
+    target_temp = copy.deepcopy(target)
+    source_temp.paint_uniform_color([1, 0.706, 0])
+    target_temp.paint_uniform_color([0, 0.651, 0.929])
+    source_temp.transform(transformation)
+    o3d.visualization.draw_geometries([source_temp, target_temp])
+
+
+#------------------------------------------------------------------------
+def draw_registration_result(source, target, transformation):
+    source_temp = copy.deepcopy(source)
+    target_temp = copy.deepcopy(target)
+    source_temp.paint_uniform_color([1, 0.706, 0])
+    target_temp.paint_uniform_color([0, 0.651, 0.929])
+    source_temp.transform(transformation)
+    o3d.visualization.draw_geometries([source_temp, target_temp])
+
+    calculate_asymmetry_dist(source_temp, target_temp, sign_dist_metric)
+
+
+#--------------------------------------------------------------------------
+def point_to_point_icp(source, target, threshold, trans_init):
+    print("Apply point-to-point ICP")
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        source, target, threshold, trans_init,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint())
+
+    print(reg_p2p)
+    print("Transformation is:")
+    print(reg_p2p.transformation, "\n")
+    draw_registration_result_init(source, target, reg_p2p.transformation)
+
+#-------------------------------------------------------------------------
+def point_to_plane_icp(source, target, threshold, trans_init):
+    print("Apply point-to-plane ICP")
+    reg_p2l = o3d.pipelines.registration.registration_icp(
+        source, target, threshold, trans_init,
+        o3d.pipelines.registration.TransformationEstimationPointToPlane())
+
+    print(reg_p2l)
+    print("Transformation is:")
+    print(reg_p2l.transformation, "\n")
+    draw_registration_result(source, target, reg_p2l.transformation)
+
+#---------------------------------------------------------------------------
+###########################################################################################
+#calculate distance between original and reflected torso
+###########################################################################################
+
+def calculate_asymmetry_dist(source_temp, target_temp, sign_dist_metric):
+    #o3d.visualization.draw_geometries([source_temp, target_temp])
+
+    #calculate distance between the 2 torso's
+    dists = source_temp.compute_point_cloud_distance(target_temp)
+    dists = np.asarray(dists)
+    dists_norm = copy.deepcopy(dists) 
+
+    #Paint point color according to distance---------------------
+    lendists = len(dists)
+    maxdist = max(dists)
+    np_colors = np.random.rand(lendists, 3)  #create 3d float array for colors
+
+    #assign colors normalized to 1 to RGB color array
+    for i in range(0, lendists):
+        #if sign_dist_metric[i] > 0:
+            dists_norm[i] = dists[i]/maxdist
+            np_colors[i,0] = dists_norm[i]
+            np_colors[i,1] = 1-dists_norm[i]
+            np_colors[i,2] = 1-dists_norm[i]
+        #elif sign_dist_metric[i] < 0:
+        #    np_colors[i,0] = 0
+        #    np_colors[i,1] = 0
+        #    np_colors[i,2] = 0
+
+    #create temporary PointCloud pcd for visualization and assign points as well as colors 
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(source_temp.points)
+    pcd.colors = o3d.utility.Vector3dVector(np_colors)
+    o3d.visualization.draw_geometries([pcd])
+
+    #------------------------------------------------------------
+    #Print Original and PointCloud with removed points (>9mm)
+    #------------------------------------------------------------
+
+    ind = np.where(sign_dist_metric > 9)[0]
+    pcd_threshold = source_temp.select_by_index(ind)
+    pcd_threshold.paint_uniform_color([1, 0, 0])
+    o3d.visualization.draw_geometries([pcd_threshold, source_temp])
+
+    print("Print the distances of the first 10 points")
+    print(np.asarray(dists)[:10])
+
+    #---------------------------------------------
+    #Save all asymmetry distances in text file
+    #---------------------------------------------
+    print('Save distances in float array')
+    #---------------------------------------------
+    lendists = len(dists)
+    f = open("distances.dat", "w+")
+    for i in range(0, lendists):
+        f.write(str(sign_dist_metric[i]))
+        f.write("\n")  
+    #----------------------------------------------
+
+#---------------------------------------------------------------------------
+###########################################################################################
+#calculate statistics
+###########################################################################################
+
+def calculate_statistics(pcd_01, sign_dist_metric):
+
+    pcd_01.estimate_normals(
+    search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=30, max_nn=30))
+
+    o3d.visualization.draw_geometries([pcd_01],
+                                  zoom=0.3412,
+                                  front=[0.4257, -0.2125, -0.8795],
+                                  lookat=[2.6172, 2.0475, 1.532],
+                                  up=[-0.0694, -0.9768, 0.2024],
+                                  point_show_normal=True)
+
+    print("any normal vector")
+    print(print(pcd_01.normals[10]))
+
+    pcd_points_01 = np.asarray(pcd_01.points)
+    #vec_normal = pcd_points_01[1,:]
+    nr = len(pcd_points_01)
+    
+    distmax = -100000
+
+    #---------------------
+    for i in range(nr):
+
+        if sign_dist_metric[i] > distmax: 
+            distmax = sign_dist_metric[i]
+            vec_normal = (np.asarray(pcd_01.normals)[200, :])
+
+    #vec_normal = np.asarray(vec_normal)
+    print("normal vectors")
+    print(vec_normal)
+
+    #Calculate surface rotation relative to sagittal plane
+    ortho_vec = copy.deepcopy(vec_normal)
+    ortho_vec[0] = 0
+    ortho_vec[1] = 1
+    ortho_vec[2] = 0
+
+    #calculate vector norm
+    vec_normal_norm  = math.sqrt( vec_normal[0]**2 + vec_normal[1]**2 + vec_normal[2]**2 )
+    ortho_vec_norm = math.sqrt( ortho_vec[0]**2 + ortho_vec[1]**2 + ortho_vec[2]**2 )
+
+    print("vec_normal_norm")
+    print(vec_normal_norm)
+    print("ortho_vec_norm")
+    print(ortho_vec_norm)
+
+    #dot product of vectors
+    dot_product_vectors = vec_normal[0]*ortho_vec[0] + vec_normal[1]*ortho_vec[1] + vec_normal[2]*ortho_vec[2] 
+
+    #surf_angle = math.acosh( (dot_product_vectors) / (vec_normal_norm * ortho_vec_norm))
+
+    #print("This is the surface rotation at the max asymmetry location !")
+    #print(surf_angle)
+
+
+
+###########################################################################################
+###########################################################################################
+###########################################################################################
+###########################################################################################
+
+
+
+
+
+
+#-----------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------------
+#Main part for ICP registration utilizting the prior defined functions
+#-----------------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    #pcd_data = o3d.data.DemoICPPointClouds()
+    #source = o3d.io.read_point_cloud(pcd_data.paths[0])
+    #source_final = copy.deepcopy(source)
+    #target = o3d.io.read_point_cloud(pcd_data.paths[1])
+    # Input point-clouds
+    source = copy.deepcopy(pointSet1)
+    target = copy.deepcopy(pointSet2)
+    threshold = 0.105
+    #trans_init = np.asarray([[0.862, 0.011, -0.507, 0.5],
+    #                         [-0.139, 0.967, -0.215, 0.7],
+    #                         [0.487, 0.255, 0.835, -1.4], [0.0, 0.0, 0.0, 1.0]])
+    
+    trans_init = np.asarray([[1, 0, 0, 0],
+                             [0, 1, 0, 0],
+                             [0, 0, 1, 0], [0.0, 0.0, 0.0, 1.0]])
+    
+
+
+    #draw_registration_result_init(source, target, trans_init)
+    #print("Initial alignment")
+
+    evaluation = o3d.pipelines.registration.evaluate_registration(
+        source, target, threshold, trans_init)
+    
+    evaluation = o3d.pipelines.registration.evaluate_registration(
+        source, target, threshold, trans_init)
+    
+    evaluation = o3d.pipelines.registration.evaluate_registration(
+        source, target, threshold, trans_init)
+
+    print(evaluation, "\n")
+    #point_to_point_icp(source, target, threshold, trans_init)
+    point_to_plane_icp(source, target, threshold, trans_init)
+
+    calculate_statistics(pcd_01, sign_dist_metric)
+    
+
+    
+
+
+
+
