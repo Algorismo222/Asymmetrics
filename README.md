@@ -1,6 +1,9 @@
 # Asymmetrics
 Python Script using Open3D to calculate an asymmetry map for the human torso and parametric evaluations
 
+The Python script can be used under the MIT license and uses only open source tools like Python, Open3d
+and related Python libraries.
+
 As package manager Anaconda was used and the code was implemented in a Jupyter Notebook using VisualStudioCode
 as CodeEditor. The script is based on Python 3.9 utilizing Open3d and the following libraries:
 
